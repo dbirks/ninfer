@@ -2,6 +2,12 @@
 
 FROM nvidia/cuda:13.1.2-devel-ubuntu24.04 AS build
 
+ARG REPO_URL="https://github.com/dbirks/ninfer"
+
+LABEL org.opencontainers.image.source="${REPO_URL}"
+LABEL org.opencontainers.image.description="NInfer runtime image for selected Qwen .ninfer artifacts"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
