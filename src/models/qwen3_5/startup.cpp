@@ -1,6 +1,7 @@
 #include "models/qwen3_5/startup.h"
 #include "models/qwen3_5/execution/profile.h"
 #include "models/qwen3_5/program/planning/moe.h"
+#include "ninfer/types.h"
 
 #include <algorithm>
 
@@ -59,7 +60,7 @@ std::optional<Startup::ExecutionPlan> Startup::plan(DeviceContext& device,
     auto base             = resolve_kv_capacity(limited, curve, available);
     const auto max_tokens = static_cast<std::int32_t>(
         std::max(std::min(chunk, options.max_context),
-                 options.max_concurrency * (options.speculative.draft_tokens + 1)));
+                 std::min(options.max_concurrency, kMaximumRoundBatch) * (options.speculative.draft_tokens + 1)));
     CpuTopology topology;
     auto placement = moe::resolve_plan(*weights.offload, weights.banks,
                                        available - base.runtime_reservation_bytes, max_tokens,

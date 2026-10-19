@@ -17,7 +17,12 @@ namespace ninfer {
 
 using TokenId = std::int32_t;
 
-inline constexpr std::uint32_t kMaximumConcurrency               = 8;
+// Resident generation requests (admitted lanes). A lane owns KV, recurrent state and scheduling;
+// up to kMaximumRoundBatch of them execute in one compact decode/control round, so every op, graph
+// and kernel keeps its B=1..8 registered domain while admission scales to 16 (dbirks fork).
+inline constexpr std::uint32_t kMaximumConcurrency               = 16;
+inline constexpr std::uint32_t kMaximumRoundBatch                = 8;
+static_assert(kMaximumRoundBatch <= kMaximumConcurrency);
 inline constexpr std::size_t kMaximumContextCacheSessionKeyBytes = 256;
 inline constexpr std::size_t kMaximumExplicitPromptCacheMarkers  = 4;
 // Aggregate encoded image/video payload retained by one prompt, independent of item count.

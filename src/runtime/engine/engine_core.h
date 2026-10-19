@@ -1967,6 +1967,29 @@ private:
             if (recovering == a || recovering == b) { return recovering == a; }
             return slots_[a]->id < slots_[b]->id;
         });
+        // More ready lanes than one compact round holds: license kMaximumRoundBatch of them this
+        // cycle. The first candidate (a protected recovery, else the oldest) always runs, so the
+        // reclaim/pause rules below are unchanged; the rest go least-recently-executed first and
+        // the remainder wait one cycle without holding a permit.
+        if (scope == ReservationScope::Round) {
+            std::vector<std::uint32_t> ready;
+            for (const auto lane : candidates)
+                if (!prefill || lane != *prefill) ready.push_back(lane);
+            if (ready.size() > kMaximumRoundBatch) {
+                std::vector<std::uint32_t> keep{ready.front()};
+                std::vector<std::uint32_t> rest(ready.begin() + 1, ready.end());
+                std::stable_sort(rest.begin(), rest.end(), [&](auto a, auto b) {
+                    return lane_last_round_[a] < lane_last_round_[b];
+                });
+                keep.insert(keep.end(), rest.begin(), rest.begin() + (kMaximumRoundBatch - 1));
+                std::vector<std::uint32_t> limited;
+                for (const auto lane : candidates)
+                    if ((prefill && lane == *prefill) ||
+                        std::find(keep.begin(), keep.end(), lane) != keep.end())
+                        limited.push_back(lane);
+                candidates = std::move(limited);
+            }
+        }
         std::optional<std::uint32_t> blocked;
         for (const auto lane : candidates) {
             const auto request = slots_[lane];
@@ -2041,6 +2064,9 @@ private:
                           const std::array<bool, kMaximumConcurrency>& cancelled_at_unit_start) {
         nvtx::ScopedRange decode_range(nvtx::Name::Decode, nvtx::Category::Decode,
                                        static_cast<std::uint64_t>(membership.size));
+        if (membership.size > kMaximumRoundBatch)
+            throw std::logic_error("decode round exceeds the compact round batch");
+        note_round_lanes(membership.lane_span());
         ProgramCallScope program_call(*this);
         RoundMasks masks;
         bool constrained = false;
@@ -2065,6 +2091,9 @@ private:
                 static_cast<std::size_t>(membership.row_stride) * membership.size) {
             throw std::logic_error("thinking control membership is invalid");
         }
+        if (membership.size > kMaximumRoundBatch)
+            throw std::logic_error("control round exceeds the compact round batch");
+        note_round_lanes(membership.lane_span());
 
         std::array<std::size_t, kMaximumConcurrency> generated_sizes{};
         std::array<std::optional<std::uint32_t>, kMaximumConcurrency> prefix_execution_splits{};
@@ -2395,6 +2424,15 @@ private:
     std::vector<std::shared_ptr<Request>> paused_;
     Scheduling scheduler_;
     std::array<bool, kMaximumConcurrency> runnable_units_{};
+    // Round counter per lane, for least-recently-executed selection when ready lanes exceed one
+    // compact round (kMaximumRoundBatch).
+    std::array<std::uint64_t, kMaximumConcurrency> lane_last_round_{};
+    std::uint64_t round_serial_ = 0;
+    void note_round_lanes(std::span<const std::uint32_t> lanes) noexcept {
+        ++round_serial_;
+        for (const auto lane : lanes)
+            if (lane < kMaximumConcurrency) lane_last_round_[lane] = round_serial_;
+    }
     std::atomic<bool> admission_check_pending_{false};
     std::uint64_t worker_accounted_elapsed_ns_ = 0;
     HostWorkClass current_host_work_class_     = HostWorkClass::Control;

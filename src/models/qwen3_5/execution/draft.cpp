@@ -566,7 +566,7 @@ auto dflash_decode_batch_body(DFlashBatchContext& state, std::int32_t batch_size
                               ops::CausalAttentionExecutionEnvelope target_envelope,
                               SpeculativePhase phase, bool capturing) {
     return [&state, batch_size, k, envelopes, target_envelope, phase, capturing] {
-        if (batch_size <= 0 || batch_size > static_cast<std::int32_t>(kMaximumConcurrency) ||
+        if (batch_size <= 0 || batch_size > static_cast<std::int32_t>(kMaximumRoundBatch) ||
             k == 0 || k > kDFlashDecodeMaximumDrafts) {
             throw std::logic_error("DFlash decode batch state is incomplete");
         }

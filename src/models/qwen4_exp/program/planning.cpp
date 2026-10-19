@@ -53,7 +53,7 @@ namespace {
 EngineOptions options(const execution::ModelProfile& profile, const EngineOptions& supplied) {
     auto o = supplied;
     if (load_options(o) != profile.options || o.max_concurrency == 0 ||
-        o.max_concurrency > kMaximumConcurrency || !o.max_context ||
+        o.max_concurrency > kMaximumRoundBatch || !o.max_context ||
         o.max_context > profile.config.text.max_context)
         throw std::invalid_argument(
             "execution options differ from selected Qwen4Exp components or domain");

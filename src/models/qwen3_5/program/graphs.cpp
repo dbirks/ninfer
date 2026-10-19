@@ -149,7 +149,7 @@ void ProgramImpl::prepare_graphs() {
     nvtx::ScopedRange prepare_range(nvtx::Name::CudaGraphPrepare, nvtx::Category::Graph);
 
     std::array<StateImageHandle, kMaximumConcurrency> capture_states{};
-    for (std::uint32_t row = 0; row < max_concurrency; ++row) {
+    for (std::uint32_t row = 0; row < round_batch_limit(); ++row) {
         std::optional<StateImageHandle> state = state_store->reserve_destination();
         if (!state) { throw std::bad_alloc(); }
         state_images->storage().clear(state_store->physical_slot(*state), device.execution_view());
@@ -169,12 +169,12 @@ void ProgramImpl::prepare_graphs() {
                                           const char* label) {
         DeviceKVPagePool& pool       = cache.page_pool();
         KVExecutionTablePool& tables = cache.execution_tables();
-        if (pool.capacity_pages() < max_concurrency) {
+        if (pool.capacity_pages() < round_batch_limit()) {
             throw std::invalid_argument(std::string(label) +
                                         " cannot provide one Paged KV page per concurrent request");
         }
-        allocations.reserve(max_concurrency);
-        for (std::uint32_t row = 0; row < max_concurrency; ++row) {
+        allocations.reserve(round_batch_limit());
+        for (std::uint32_t row = 0; row < round_batch_limit(); ++row) {
             auto binding = histories.prepare_binding(nullptr, 0, 1, row);
             binding.publish_restores();
             binding.prepare_tail_copy();
@@ -231,7 +231,7 @@ void ProgramImpl::prepare_graphs() {
             cache.page_pool().zero_pages(pages, device.stream());
         };
     const auto prepare_representative = [&](std::uint32_t frontier, std::uint32_t batch_size) {
-        if (batch_size == 0 || batch_size > max_concurrency) {
+        if (batch_size == 0 || batch_size > round_batch_limit()) {
             throw std::logic_error("CUDA Graph representative batch is invalid");
         }
         work.reset();
@@ -363,7 +363,7 @@ void ProgramImpl::prepare_graphs() {
     if (speculative_backend == SpeculativeBackend::None) {
         const auto ordinary_profiles = ordinary_graph_profiles(capacity);
         validate_graph_profiles(ordinary_profiles, capacity - 1, "ordinary");
-        const std::uint32_t ordinary_batch_limit = max_concurrency;
+        const std::uint32_t ordinary_batch_limit = round_batch_limit();
         execution::OrdinaryBatchContext ordinary_state{
             execution_core(),      decoder->text_kv,
             *io.ordinary,          *ordinary_host_ingress,
@@ -518,15 +518,15 @@ void ProgramImpl::prepare_graphs() {
             const bool forward = phase == SpeculativePhase::Forward;
             auto& family       = forward ? speculative_forward_graphs : speculative_finish_graphs;
             const auto& planned_profiles = forward ? forward_profiles : finish_profiles;
-            family.profiles.reserve(planned_profiles.size() * max_concurrency);
-            for (std::uint32_t batch = 1; batch <= max_concurrency; ++batch) {
+            family.profiles.reserve(planned_profiles.size() * round_batch_limit());
+            for (std::uint32_t batch = 1; batch <= round_batch_limit(); ++batch) {
                 for (const auto planned : planned_profiles) {
                     family.profiles.emplace_back();
                     auto& profile                  = family.profiles.back();
                     profile.batch_size             = batch;
                     profile.min_execution_frontier = planned.min;
                     profile.max_execution_frontier = planned.max;
-                    profile.topology_class = planned.topology_class * max_concurrency + batch - 1U;
+                    profile.topology_class = planned.topology_class * round_batch_limit() + batch - 1U;
                     capture(phase, profile);
                 }
             }
@@ -566,7 +566,7 @@ void ProgramImpl::prepare_graphs() {
     }
     CUDA_CHECK(cudaMemsetAsync(token_counts.data, 0, token_counts.bytes(), device.stream()));
     device.synchronize();
-    for (std::uint32_t row = 0; row < max_concurrency; ++row) {
+    for (std::uint32_t row = 0; row < round_batch_limit(); ++row) {
         if (!state_store->release(capture_states[row])) {
             throw std::logic_error("CUDA Graph capture StateImage could not be released");
         }

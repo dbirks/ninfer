@@ -69,7 +69,7 @@ void mtp_bridge_and_propose(PrefillContext& state, const Tensor& next_token,
 auto mtp_decode_batch_body(MtpBatchContext& state, std::int32_t batch_size, std::uint32_t k,
                            MtpCausalAttentionEnvelopes envelopes, SpeculativePhase phase) {
     return [&state, batch_size, k, envelopes, phase] {
-        if (batch_size <= 0 || batch_size > static_cast<std::int32_t>(kMaximumConcurrency) ||
+        if (batch_size <= 0 || batch_size > static_cast<std::int32_t>(kMaximumRoundBatch) ||
             k == 0 || k > kMtpDecodeMaximumDrafts) {
             throw std::logic_error("MTP decode batch state is incomplete");
         }

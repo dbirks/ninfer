@@ -142,7 +142,7 @@ PersistentLayout persistent_layout(const SequencePlanImpl& plan) {
             builder,
             GdnReplayRecordSpec{
                 .layers          = dimension(config.linear_attention_layers),
-                .record_capacity = static_cast<std::int32_t>(plan.max_concurrency),
+                .record_capacity = static_cast<std::int32_t>(std::min(plan.max_concurrency, kMaximumRoundBatch)),
                 .width           = static_cast<std::int32_t>(plan.draft_window + 1U),
                 .conv_channels   = (config.gdn ? dimension(config.gdn->conv_channels()) : 0),
                 .qk_heads        = (config.gdn ? dimension(config.gdn->linear_num_key_heads) : 0),
@@ -463,7 +463,7 @@ WorkspacePlan build_workspace_plan(const SequencePlanImpl& plan) {
     }
 
     if (!plan.causal_scoring) {
-        for (std::int32_t batch = 1; batch <= static_cast<std::int32_t>(plan.max_concurrency);
+        for (std::int32_t batch = 1; batch <= static_cast<std::int32_t>(std::min(plan.max_concurrency, kMaximumRoundBatch));
              ++batch) {
             WorkspaceLayoutBuilder ordinary;
             matrix(ordinary, DType::BF16, dimension(config.hidden_size), batch);
@@ -505,7 +505,7 @@ WorkspacePlan build_workspace_plan(const SequencePlanImpl& plan) {
         out.mtp_round = std::max({accept, finish(mtp_batch), finish(mtp_ar), finish(mtp_proposal)});
         out.ordinary_round = std::max(out.ordinary_round, finish(mtp_align));
 
-        for (std::int32_t batch = 1; batch <= static_cast<std::int32_t>(plan.max_concurrency);
+        for (std::int32_t batch = 1; batch <= static_cast<std::int32_t>(std::min(plan.max_concurrency, kMaximumRoundBatch));
              ++batch) {
             const std::int32_t aggregate = batch * verify;
             WorkspaceLayoutBuilder target;
@@ -686,7 +686,7 @@ WorkspacePlan build_workspace_plan(const SequencePlanImpl& plan) {
             };
 
             out.dflash_context = dflash_context_capacity(chunk, 1, false);
-            for (std::int32_t batch = 1; batch <= static_cast<std::int32_t>(plan.max_concurrency);
+            for (std::int32_t batch = 1; batch <= static_cast<std::int32_t>(std::min(plan.max_concurrency, kMaximumRoundBatch));
                  ++batch) {
                 const std::int32_t aggregate = verify * batch;
                 WorkspaceLayoutBuilder target;
@@ -742,7 +742,7 @@ void validate_target_options(const execution::ModelProfile& profile, DeviceConte
         throw std::invalid_argument("prefill_chunk must be a nonzero multiple of 128");
     }
     if (options.max_concurrency == 0 || options.max_concurrency > kMaximumConcurrency) {
-        throw std::invalid_argument("max_concurrency must be in [1,8]");
+        throw std::invalid_argument("max_concurrency must be in [1,16]");
     }
     const std::uint32_t logical_pages = page_count(options.max_context);
     const std::uint32_t minimum_pages = std::max(logical_pages, options.max_concurrency);
